@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Photo Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .drop-zone-active { border-color: #3b82f6; background-color: #eff6ff; }
+        .loader { border: 4px solid #f3f4f6; border-top: 4px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        #drawing-canvas { position: absolute; top: 0; left: 0; cursor: crosshair; touch-action: none; }
+        #image-wrapper { position: relative; display: inline-block; }
+        
+        .transparent-bg {
+            background-image:
+                linear-gradient(45deg, #ccc 25%, transparent 25%),
+                linear-gradient(-45deg, #ccc 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #ccc 75%),
+                linear-gradient(-45deg, transparent 75%, #ccc 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+        
+        .error-message { background-color: #fee2e2; color: #b91c1c; border-left: 4px solid #ef4444; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div id="main-container" class="w-full max-w-4xl bg-white rounded-2xl shadow-xl p-6 md:p-10 transition-all duration-300">
+        
+        <!-- UPLOAD VIEW -->
+        <div id="upload-container">
+            <h1 class="text-3xl font-bold text-gray-800 text-center">AI Photo Editor</h1>
+            <p class="text-gray-500 text-center mt-2 mb-6">Upload an image to remove the background or erase objects.</p>
+            <div id="drop-zone" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:bg-gray-50">
+                <input type="file" id="file-input" class="hidden" accept="image/png, image/jpeg, image/webp">
+                <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                <p class="mt-4 text-gray-600"><span class="font-semibold text-blue-600">Click to upload</span> or drag and drop</p>
+                <p class="text-xs text-gray-500 mt-1">PNG, JPG, or WEBP</p>
+            </div>
+        </div>
+
+        <!-- EDITOR VIEW -->
+        <div id="editor-container" class="hidden text-center">
+            <!-- Image and Canvas Wrapper -->
+            <div id="image-wrapper" class="mx-auto max-w-full">
+                 <img id="image-preview" src="#" alt="Image preview" class="rounded-xl shadow-md max-h-[60vh] block w-auto h-auto">
+                 <canvas id="drawing-canvas"></canvas>
+            </div>
+            
+            <!-- Controls -->
+            <div id="controls" class="mt-4 flex flex-wrap justify-center items-center gap-x-6 gap-y-4">
+                <div>
+                    <label for="brush-size" class="font-medium text-gray-700 text-sm">Brush Size:</label>
+                    <input type="range" id="brush-size" min="5" max="100" value="30" class="w-36 align-middle">
+                </div>
+                <div>
+                    <button id="undo-button" class="bg-yellow-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-yellow-600 transition-all text-sm">Undo</button>
+                    <button id="clear-button" class="bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-red-700 transition-all text-sm ml-2">Clear Mask</button>
+                </div>
+            </div>
+
+            <!-- Error & Loader -->
+            <div id="error-container" class="hidden my-4 p-4 rounded-lg error-message text-left max-w-xl mx-auto">
+                <p class="font-semibold">Error</p>
+                <p id="error-message-text"></p>
+            </div>
+            <div id="loader-container" class="text-center my-6 hidden">
+                <div class="loader mx-auto"></div>
+                <p id="loader-text" class="text-gray-600 mt-3">Processing...</p>
+            </div>
+
+            <!-- Result Display -->
+            <div id="output-container" class="hidden">
+                <h2 class="text-2xl font-bold text-gray-800 text-center mt-8 mb-4">Result</h2>
+                <div id="result-bg" class="w-full max-w-full mx-auto rounded-xl shadow-md">
+                    <img id="result-image" src="#" alt="Result image" class="mx-auto max-h-[60vh] block w-auto h-auto">
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="text-center border-t border-gray-200 mt-8 pt-6 space-y-3 sm:space-y-0 sm:space-x-4">
+                 <button id="remove-bg-button" class="w-full sm:w-auto bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-700 transition-all">
+                    Remove Background
+                </button>
+                <button id="inpaint-button" class="w-full sm:w-auto bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-all">
+                    Apply Erase
+                </button>
+                <a id="download-button" href="#" download="edited-image.png" class="w-full sm:w-auto inline-block bg-green-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-green-700 transition-all hidden">
+                    Download
+                </a>
+                <button id="start-over-button" class="w-full sm:w-auto bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-gray-700 transition-all">
+                    New Image
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- STATE ---
+        let currentFile = null;
+        let isDrawing = false;
+        let lastX, lastY;
+        let history = [];
+        const API_BASE_URL = 'http://127.0.0.1:8000';
+
+        // --- DOM Elements ---
+        const mainContainer = document.getElementById('main-container');
+        const uploadContainer = document.getElementById('upload-container');
+        const editorContainer = document.getElementById('editor-container');
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        
+        const imagePreview = document.getElementById('image-preview');
+        const canvas = document.getElementById('drawing-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        const brushSizeSlider = document.getElementById('brush-size');
+        const undoButton = document.getElementById('undo-button');
+        const clearButton = document.getElementById('clear-button');
+        
+        const removeBgButton = document.getElementById('remove-bg-button');
+        const inpaintButton = document.getElementById('inpaint-button');
+        const startOverButton = document.getElementById('start-over-button');
+        
+        const loaderContainer = document.getElementById('loader-container');
+        const loaderText = document.getElementById('loader-text');
+        const errorContainer = document.getElementById('error-container');
+        const errorMessageText = document.getElementById('error-message-text');
+        
+        const outputContainer = document.getElementById('output-container');
+        const resultBg = document.getElementById('result-bg');
+        const resultImage = document.getElementById('result-image');
+        const downloadButton = document.getElementById('download-button');
+
+        // --- EVENT LISTENERS ---
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+        mainContainer.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); });
+        mainContainer.addEventListener('drop', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleFile(e.dataTransfer.files[0]);
+        });
+
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); startDrawing(e.touches[0]); }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); draw(e.touches[0]); }, { passive: false });
+        canvas.addEventListener('touchend', stopDrawing);
+
+        undoButton.addEventListener('click', undoLast);
+        clearButton.addEventListener('click', clearCanvas);
+        removeBgButton.addEventListener('click', removeBackground);
+        inpaintButton.addEventListener('click', inpaint);
+        startOverButton.addEventListener('click', resetUI);
+        
+        // --- INITIALIZATION ---
+        window.onload = () => {
+            inpaintButton.disabled = true; // Disable until a mask is drawn
+        };
+
+        // --- CORE FUNCTIONS ---
+        function handleFile(file) {
+            if (!file || !file.type.startsWith('image/')) {
+                showError('Please upload a valid image file (PNG, JPG, WEBP).');
+                return;
+            }
+            currentFile = file;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                imagePreview.src = e.target.result;
+                imagePreview.onload = () => {
+                    uploadContainer.classList.add('hidden');
+                    editorContainer.classList.remove('hidden');
+                    resetEditorState();
+                    resizeCanvas();
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        function resizeCanvas() {
+            canvas.width = imagePreview.clientWidth;
+            canvas.height = imagePreview.clientHeight;
+            clearCanvas();
+        }
+
+        async function removeBackground() {
+            if (!currentFile) {
+                showError('No file selected.');
+                return;
+            }
+            hideResultAndError();
+            showLoader('AI is removing the background...');
+            const formData = new FormData();
+            formData.append('file', currentFile);
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/remove-bg`, { method: 'POST', body: formData });
+                if (!response.ok) throw new Error(`Server error: ${response.status} ${response.statusText}`);
+                const imageBlob = await response.blob();
+                const imageUrl = URL.createObjectURL(imageBlob);
+                const newFilename = `${getFilenameWithoutExtension(currentFile.name)}-transparent.png`;
+                showResult(imageUrl, newFilename, true);
+            } catch (error) {
+                console.error('Error removing background:', error);
+                showError(`Failed to remove background. Make sure the backend server is running. (${error.message})`);
+            } finally {
+                hideLoader();
+            }
+        }
+        
+        async function inpaint() {
+            if (!currentFile) {
+                showError("No file has been selected.");
+                return;
+            }
+            hideResultAndError();
+            showLoader('AI is removing the object...');
+
+            const maskCanvas = document.createElement('canvas');
+            maskCanvas.width = imagePreview.naturalWidth;
+            maskCanvas.height = imagePreview.naturalHeight;
+            const maskCtx = maskCanvas.getContext('2d');
+            maskCtx.fillStyle = 'black';
+            maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+            maskCtx.drawImage(canvas, 0, 0, maskCanvas.width, maskCanvas.height);
+            
+            const maskBlob = await new Promise(resolve => maskCanvas.toBlob(resolve, 'image/png'));
+            const formData = new FormData();
+            formData.append('file', currentFile);
+            formData.append('mask_file', maskBlob, 'mask.png');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/inpaint`, { method: 'POST', body: formData });
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => null);
+                    const detail = errorData?.detail ? JSON.stringify(errorData.detail) : `Status ${response.status}`;
+                    throw new Error(`Server error: ${detail}`);
+                }
+                const imageBlob = await response.blob();
+                const imageUrl = URL.createObjectURL(imageBlob);
+                const newFilename = `${getFilenameWithoutExtension(currentFile.name)}-inpainted.png`;
+                showResult(imageUrl, newFilename, false);
+            } catch (error) {
+                console.error('Inpainting error:', error);
+                showError(`Failed to inpaint. Make sure the backend server is running. (${error.message})`);
+            } finally {
+                hideLoader();
+            }
+        }
+
+        // --- UI HELPER FUNCTIONS ---
+        function showResult(imageUrl, filename, isTransparent) {
+            resultImage.src = imageUrl;
+            downloadButton.href = imageUrl;
+            downloadButton.download = filename;
+            resultBg.classList.toggle('transparent-bg', isTransparent);
+            outputContainer.classList.remove('hidden');
+            downloadButton.classList.remove('hidden');
+        }
+        
+        function showLoader(text) {
+            loaderText.textContent = text;
+            loaderContainer.classList.remove('hidden');
+            [inpaintButton, removeBgButton, startOverButton].forEach(btn => btn.disabled = true);
+        }
+
+        function hideLoader() {
+            loaderContainer.classList.add('hidden');
+            [inpaintButton, removeBgButton, startOverButton].forEach(btn => btn.disabled = false);
+            // Re-check if inpaint button should be enabled
+            const isCanvasBlank = !ctx.getImageData(0, 0, canvas.width, canvas.height).data.some(channel => channel !== 0);
+            inpaintButton.disabled = isCanvasBlank;
+        }
+        
+        function showError(message) {
+            errorMessageText.textContent = message;
+            errorContainer.classList.remove('hidden');
+        }
+
+        function hideResultAndError() {
+            outputContainer.classList.add('hidden');
+            errorContainer.classList.add('hidden');
+            if (resultImage.src.startsWith('blob:')) {
+                URL.revokeObjectURL(resultImage.src);
+            }
+        }
+
+        function resetUI() {
+            currentFile = null;
+            fileInput.value = ''; 
+            uploadContainer.classList.remove('hidden');
+            editorContainer.classList.add('hidden');
+            resetEditorState();
+        }
+
+        function resetEditorState() {
+            hideResultAndError();
+            hideLoader();
+            clearCanvas();
+        }
+        
+        function getFilenameWithoutExtension(filename) {
+            return filename.split('.').slice(0, -1).join('.') || 'image';
+        }
+
+        // --- CANVAS DRAWING FUNCTIONS ---
+        function saveState() { history.push(canvas.toDataURL()); }
+        function undoLast() {
+            if (history.length > 1) {
+                history.pop();
+                const lastState = new Image();
+                lastState.src = history[history.length - 1];
+                lastState.onload = () => {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(lastState, 0, 0);
+                };
+            } else {
+                clearCanvas(); // If only one state, clear it
+            }
+            const isCanvasBlank = !ctx.getImageData(0, 0, canvas.width, canvas.height).data.some(channel => channel !== 0);
+            inpaintButton.disabled = isCanvasBlank;
+        }
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+            return { x: clientX - rect.left, y: clientY - rect.top };
+        }
+        function startDrawing(e) {
+            isDrawing = true;
+            const pos = getMousePos(e);
+            [lastX, lastY] = [pos.x, pos.y];
+        }
+        function draw(e) {
+            if (!isDrawing) return;
+            const pos = getMousePos(e);
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.lineWidth = brushSizeSlider.value;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            [lastX, lastY] = [pos.x, pos.y];
+        }
+        function stopDrawing() {
+            if (isDrawing) {
+                isDrawing = false;
+                saveState();
+                inpaintButton.disabled = false; // Enable button after drawing
+            }
+        }
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            history = [];
+            saveState();
+            inpaintButton.disabled = true; // Disable button when canvas is cleared
+        }
+    </script>
+</body>
+</html>
