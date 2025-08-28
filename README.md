@@ -7,5 +7,5 @@ Open frontend.html
 
 3. 
 ```cmd
-uvicorn backend.py --reload --port 8000
+uvicorn backend:app --reload --port 8000
 ```
