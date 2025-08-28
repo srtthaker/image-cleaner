@@ -1,1 +1,5 @@
 __pycache__
+yolov8l-seg.pt
+yolov8m-seg.pt
+yolov8n-seg.pt
+yolov8x-seg.pt
